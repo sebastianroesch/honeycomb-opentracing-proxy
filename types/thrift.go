@@ -68,7 +68,6 @@ func convertThriftSpan(ts *zipkincore.Span) *Span {
 		}
 	}
 
-
 	if ts.Duration != nil {
 		s.DurationMs = float64(*ts.Duration) / 1000
 	} else {
