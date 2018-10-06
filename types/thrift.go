@@ -27,10 +27,6 @@ func convertThriftSpan(ts *zipkincore.Span) *Span {
 		s.ParentID = convertID(*ts.ParentID)
 	}
 
-	if ts.Duration != nil {
-		s.DurationMs = float64(*ts.Duration) / 1000
-	}
-
 	if ts.Timestamp != nil {
 		s.Timestamp = convertTimestamp(*ts.Timestamp)
 	}
@@ -53,13 +49,33 @@ func convertThriftSpan(ts *zipkincore.Span) *Span {
 		}
 	}
 
+	var spanStart int64
+	var spanEnd int64
 	for _, a := range ts.Annotations {
 		// TODO: do more with annotations (i.e., point-in-time logs within a span)
 		// besides extracting host info.
 		if a.Host != nil {
 			endpoint = a.Host
 		}
+		// Store the timestamps of the ServerReceive, ClientReceive,
+		// ServerSend and ClientSend annotations since they will be used to
+		// calculate the duration if it is not set.
+		if a.Value == "sr" || a.Value == "cr" {
+			spanStart = a.Timestamp
+		}
+		if a.Value == "ss" || a.Value == "cs" {
+			spanEnd = a.Timestamp
+		}
 	}
+
+
+	if ts.Duration != nil {
+		s.DurationMs = float64(*ts.Duration) / 1000
+	} else {
+		// Calculate the duration from the annotations.
+		s.DurationMs = float64(spanEnd - spanStart) / 1000
+	}
+
 	if endpoint != nil {
 		s.HostIPv4 = convertIPv4(endpoint.Ipv4)
 		s.ServiceName = endpoint.ServiceName
@@ -82,9 +98,21 @@ func convertBinaryAnnotationValue(ba *zipkincore.BinaryAnnotation) interface{} {
 		return bytes.Compare(ba.Value, []byte{0}) == 1
 	case zipkincore.AnnotationType_BYTES:
 		return ba.Value
-	case zipkincore.AnnotationType_DOUBLE, zipkincore.AnnotationType_I16, zipkincore.AnnotationType_I32, zipkincore.AnnotationType_I64:
-		var number interface{}
-		binary.Read(bytes.NewReader(ba.Value), binary.BigEndian, number)
+	case zipkincore.AnnotationType_DOUBLE:
+		var number float64
+		binary.Read(bytes.NewReader(ba.Value), binary.BigEndian, &number)
+		return number
+	case zipkincore.AnnotationType_I16:
+		var number int16
+		binary.Read(bytes.NewReader(ba.Value), binary.BigEndian, &number)
+		return number
+	case zipkincore.AnnotationType_I32:
+		var number int32
+		binary.Read(bytes.NewReader(ba.Value), binary.BigEndian, &number)
+		return number
+	case zipkincore.AnnotationType_I64:
+		var number int64
+		binary.Read(bytes.NewReader(ba.Value), binary.BigEndian, &number)
 		return number
 	case zipkincore.AnnotationType_STRING:
 		return guessAnnotationType(string(ba.Value))
